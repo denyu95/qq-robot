@@ -6,7 +6,6 @@ type Bill struct {
 	Id          int       `json:"id"`
 	Event       string    `json:"event"`
 	Consumption float32   `json:"consumption"`
-	Status      bool      `json:"status"`
 	SysDate     time.Time `json:"sysDate"`
 	UpdateDate  time.Time `json:"updateDate"`
 	Uid         string    `json:"uid"`

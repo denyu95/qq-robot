@@ -24,8 +24,11 @@ func group(m map[string]interface{}) map[string]interface{} {
 
 	getBillsExp := regexp.MustCompile(`^查看$`)
 	deleteBillExp := regexp.MustCompile(`^删除((?:\s(?:\d+))+)$`)
-	addBillExp := regexp.MustCompile(`^(?:！|!)([^\n]+)\s(\d+\.{0,1}\d{0,2})`)
-	updateBillExp := regexp.MustCompile(`^编辑\s(\d+)\s([^\n]+)\s(\d+\.{0,1}\d{0,2})`)
+	addBillExp := regexp.MustCompile(`^(?:！|!)([^\n]+)\s(\d+\.?\d{0,2})`)
+	updateBillExp := regexp.MustCompile(`^编辑\s(\d+)\s([^\n]+)\s(\d+\.?\d{0,2})`)
+
+	depositExp := regexp.MustCompile(`^充值\s(-?\d+\.?\d{0,2})`)
+	balanceExp := regexp.MustCompile(`^余额$`)
 
 	addUserExp := regexp.MustCompile(`^用户\s([^\n]+)\s([^\n]+)`)
 
@@ -59,14 +62,18 @@ func group(m map[string]interface{}) map[string]interface{} {
 			"输入：!事件[]金额\n" +
 			"如：!陈先生新华都买菜 150\n\n" +
 			"查看流水账：\n" +
-			"输入：查看\n" +
-			"如：查看\n\n" +
+			"输入：查看\n\n" +
 			"编辑流水账：\n" +
 			"输入：编辑[]编号[]事件[]金额\n" +
 			"如：编辑 1 买拖把 160\n\n" +
 			"删除流水账：\n" +
 			"输入：删除[]编号[]编号[]编号...\n" +
-			"如：删除 1 2 3 4"
+			"如：删除 1 2 3 4\n\n"+
+			"充值：\n" +
+			"输入：充值[]金额\n" +
+			"如：充值 500\n\n" +
+			"余额：\n" +
+			"输入：余额"
 		return map[string]interface{}{
 			"reply": reply,
 		}
@@ -77,6 +84,15 @@ func group(m map[string]interface{}) map[string]interface{} {
 		name := result[0][2]
 		return addUser(uid, name)
 
+	} else if depositExp.Match(byteMsg) {
+		result := depositExp.FindAllStringSubmatch(msg, -1)
+		money := result[0][1]
+		uid := strconv.FormatFloat(m["user_id"].(float64), 'f', -1, 64)
+		return deposit(uid, money)
+
+	} else if balanceExp.Match(byteMsg) {
+		return balance()
+
 	} else {
 		return map[string]interface{}{
 			"stop": true,
@@ -86,7 +102,6 @@ func group(m map[string]interface{}) map[string]interface{} {
 
 // 记录流水账
 func addBill(event, consumption, uid string) (result map[string]interface{}) {
-	status := true
 	timeNow := time.Now()
 	reply := "记录流水账失败"
 	result = make(map[string]interface{})
@@ -98,7 +113,7 @@ func addBill(event, consumption, uid string) (result map[string]interface{}) {
 		result["reply"] = reply
 		return
 	}
-	_, err = stmt.Exec(event, consumption, status, timeNow, timeNow, uid)
+	_, err = stmt.Exec(event, consumption, timeNow, timeNow, uid)
 	if err != nil {
 		glog.Infoln(err)
 		result["reply"] = reply
@@ -114,7 +129,7 @@ func getBills() (result map[string]interface{}) {
 	reply := "查询流水账失败"
 	result = make(map[string]interface{})
 
-	rows, err := dbutil.Db.Query(model.GetBillSqls)
+	rows, err := dbutil.Db.Query(model.GetBillsSql)
 	defer rows.Close()
 	if err != nil {
 		glog.Infoln(err)
@@ -141,7 +156,7 @@ func getBills() (result map[string]interface{}) {
 
 		reply += "\n编号：" + record["id"] +
 			"\n事件：" + record["event"] +
-			"\n金额：" + record["consumption"] +
+			"\n金额：" + record["consumption"] + "元" +
 			"\n日期：" + record["sysDate"] +
 			"\n记录人：" + record["name"] + "\n"
 	}
@@ -243,5 +258,53 @@ func addUser(uid, name string) (result map[string]interface{}) {
 	}
 	reply = "添加用户成功"
 	result["reply"] = reply
+	return
+}
+
+// 充值
+func deposit (uid string, money string) (result map[string]interface{}) {
+	timeNow := time.Now()
+	reply := "充值失败"
+	result = make(map[string]interface{})
+
+	stmt, err := dbutil.Db.Prepare(model.InsertBankSql)
+	defer stmt.Close()
+	if err != nil {
+		glog.Infoln(err)
+		result["reply"] = reply
+		return
+	}
+	_, err = stmt.Exec(uid, money, timeNow)
+	if err != nil {
+		glog.Infoln(err)
+		result["reply"] = reply
+		return
+	}
+	reply = "充值成功"
+	result["reply"] = reply
+	return
+}
+
+// 余额
+func balance() (result map[string]interface{}) {
+	result = make(map[string]interface{})
+
+	row := dbutil.Db.QueryRow(model.CountBalanceSql)
+	var balance float32
+	err := row.Scan(&balance)
+	if err != nil {
+		balance = 0
+	}
+
+	row = dbutil.Db.QueryRow(model.CountBillsSql)
+	var consumption float32
+	err = row.Scan(&consumption)
+	if err != nil {
+		consumption = 0
+	}
+
+	reply := "余额：%.2f元"
+	result["reply"] = fmt.Sprintf(reply, balance - consumption)
+
 	return
 }

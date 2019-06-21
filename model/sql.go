@@ -3,11 +3,11 @@ package model
 const (
 	InsertBillSql = `
 		INSERT INTO
-			t_bill (event, consumption, status, sysDate, updateDate, uid) 
+			t_bill (event, consumption, sysDate, updateDate, uid) 
 		VALUES 
-			(?, ?, ?, ?, ?, ?)
+			(?, ?, ?, ?, ?)
 	`
-	GetBillSqls = `
+	GetBillsSql = `
 		SELECT 
 			t_bill.id, event, consumption, t_user.name,
 			date_format(sysDate, '%Y-%m-%d') as sysDate
@@ -17,8 +17,6 @@ const (
 			t_user
 		ON
 			t_user.uid = t_bill.uid
-		WHERE 
-			status = 1
 	`
 	DeleteBillSql = `
 		DELETE FROM
@@ -48,5 +46,26 @@ const (
 			t_user 
 		WHERE 
 			uid = ?
+	`
+
+	InsertBankSql = `
+		INSERT INTO
+			t_bank (uid, money, sysDate) 
+		VALUES 
+			(?, ?, ?)
+	`
+
+	CountBalanceSql = `
+		SELECT
+			SUM(money)
+		FROM
+			t_bank
+	`
+
+	CountBillsSql = `
+		SELECT
+			SUM(consumption)
+		FROM
+			t_bill
 	`
 )
