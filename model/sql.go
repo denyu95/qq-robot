@@ -29,7 +29,7 @@ const (
 		UPDATE
 			t_bill
 		SET
-			event = ?, consumption = ?
+			event = ?, consumption = ?, updateDate = ?
 		WHERE 
 			id = ?
 	`
@@ -67,5 +67,21 @@ const (
 			SUM(consumption)
 		FROM
 			t_bill
+	`
+
+	CountSpendSql = `
+		SELECT
+			SUM(consumption) AS consumption,
+			t_user.name
+		FROM
+			t_bill
+		LEFT JOIN
+			t_user
+		ON
+			t_user.uid = t_bill.uid
+		WHERE
+			t_bill.sysDate > ?
+		GROUP BY
+			t_user.uid
 	`
 )

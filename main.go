@@ -1,16 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
-	"fmt"
 	"github.com/denyu95/qq-robot/dbutil"
 	"github.com/denyu95/qq-robot/model"
 	"github.com/golang/glog"
 	"github.com/juzi5201314/cqhttp-go-sdk/server"
-	"strconv"
-	"strings"
 )
 
 func main() {
@@ -23,14 +23,15 @@ func group(m map[string]interface{}) map[string]interface{} {
 	helpExp := regexp.MustCompile(`^帮助$`)
 
 	getBillsExp := regexp.MustCompile(`^查看$`)
-	deleteBillExp := regexp.MustCompile(`^删除((?:\s(?:\d+))+)$`)
-	addBillExp := regexp.MustCompile(`^(?:！|!)([^\n]+)\s(\d+\.?\d{0,2})`)
-	updateBillExp := regexp.MustCompile(`^编辑\s(\d+)\s([^\n]+)\s(\d+\.?\d{0,2})`)
+	deleteBillExp := regexp.MustCompile(`^删除((?:(?:,|，)(?:\d+))+)$`)
+	addBillExp := regexp.MustCompile(`^(?:！|!)([^\n]+)(?:,|，)(\d+\.?\d{0,2})`)
+	updateBillExp := regexp.MustCompile(`^编辑(?:,|，)(\d+)(?:,|，)([^\n]+)(?:,|，)(\d+\.?\d{0,2})`)
 
-	depositExp := regexp.MustCompile(`^充值\s(-?\d+\.?\d{0,2})`)
+	depositExp := regexp.MustCompile(`^充值(?:,|，)(-?\d+\.?\d{0,2})`)
 	balanceExp := regexp.MustCompile(`^余额$`)
+	spendExp := regexp.MustCompile(`^花费$`)
 
-	addUserExp := regexp.MustCompile(`^用户\s([^\n]+)\s([^\n]+)`)
+	addUserExp := regexp.MustCompile(`^用户(?:,|，)([^\n]+)(?:,|，)([^\n]+)`)
 
 	msg := m["message"].(string)
 	byteMsg := []byte(msg)
@@ -58,25 +59,28 @@ func group(m map[string]interface{}) map[string]interface{} {
 		return updateBill(id, event, consumption)
 
 	} else if helpExp.Match(byteMsg) {
-		reply := "\n⚠️[]代表空格\n\n记录流水账：\n" +
-			"输入：!事件[]金额\n" +
-			"如：!陈先生新华都买菜 150\n\n" +
+		reply := "\n记录流水账：\n" +
+			"输入：!事件，金额\n" +
+			"如：!买菜，150\n\n" +
+			"编辑流水账：\n" +
+			"输入：编辑，编号，事件，金额\n" +
+			"如：编辑，1，买拖把，160\n\n" +
+			"删除流水账：\n" +
+			"输入：删除，编号，编号，编号...\n" +
+			"如：删除，1，2，3，4\n\n" +
+			"充值：\n" +
+			"输入：充值，金额\n" +
+			"如：充值，500\n\n" +
 			"查看流水账：\n" +
 			"输入：查看\n\n" +
-			"编辑流水账：\n" +
-			"输入：编辑[]编号[]事件[]金额\n" +
-			"如：编辑 1 买拖把 160\n\n" +
-			"删除流水账：\n" +
-			"输入：删除[]编号[]编号[]编号...\n" +
-			"如：删除 1 2 3 4\n\n"+
-			"充值：\n" +
-			"输入：充值[]金额\n" +
-			"如：充值 500\n\n" +
-			"余额：\n" +
+			"查看余额：\n" +
 			"输入：余额"
 		return map[string]interface{}{
 			"reply": reply,
 		}
+
+	} else if spendExp.Match(byteMsg) {
+		return spend()
 
 	} else if addUserExp.Match(byteMsg) {
 		result := addUserExp.FindAllStringSubmatch(msg, -1)
@@ -212,7 +216,7 @@ func updateBill(id, event, consumption string) (result map[string]interface{}) {
 		result["reply"] = reply
 		return
 	}
-	_, err = stmt.Exec(event, consumption, id)
+	_, err = stmt.Exec(event, consumption, time.Now(), id)
 	if err != nil {
 		glog.Infoln(err)
 		reply = fmt.Sprintf(reply, id)
@@ -262,7 +266,7 @@ func addUser(uid, name string) (result map[string]interface{}) {
 }
 
 // 充值
-func deposit (uid string, money string) (result map[string]interface{}) {
+func deposit(uid string, money string) (result map[string]interface{}) {
 	timeNow := time.Now()
 	reply := "充值失败"
 	result = make(map[string]interface{})
@@ -304,7 +308,77 @@ func balance() (result map[string]interface{}) {
 	}
 
 	reply := "余额：%.2f元"
-	result["reply"] = fmt.Sprintf(reply, balance - consumption)
+	result["reply"] = fmt.Sprintf(reply, balance-consumption)
 
 	return
+}
+
+// 花费
+func spend() (result map[string]interface{}) {
+	result = make(map[string]interface{})
+	reply := "查询花费失败"
+
+	monthFirstDay := time.Now().Format("2006-01") + "-01 00:00:00"
+	fmt.Println("统计" + monthFirstDay + "花费。")
+
+	rows, err := dbutil.Db.Query(model.CountSpendSql, monthFirstDay)
+	defer rows.Close()
+	if err != nil {
+		glog.Infoln(err)
+		result["reply"] = reply
+		return
+	}
+
+	columns, _ := rows.Columns()
+	scanArgs := make([]interface{}, len(columns))
+	values := make([]interface{}, len(columns))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	reply = ""
+
+	var total float64
+	for rows.Next() {
+		rows.Scan(scanArgs...)
+		record := make(map[string]string)
+		for i, col := range values {
+			if col != nil {
+				record[columns[i]] = convertString(col)
+			}
+		}
+		fmt.Println(record)
+		consumption := record["consumption"]
+		floatConsumption, _ := strconv.ParseFloat(consumption, 64)
+		total += floatConsumption
+
+		reply += "\n坏人：" + record["name"] +
+			"，竟然消费了：" + consumption + "元！\n"
+	}
+
+	if reply == "" {
+		return map[string]interface{}{
+			"reply": "暂无消费",
+		}
+	} else {
+		reply += "\n总计：" + strconv.FormatFloat(total, 'f', -1, 32)
+		return map[string]interface{}{
+			"reply": reply,
+		}
+	}
+}
+
+func convertString(i interface{}) string {
+	switch i.(type) {
+	case string:
+		return i.(string)
+	case int:
+		return strconv.Itoa(i.(int))
+	case float64:
+		return strconv.FormatFloat(i.(float64), 'f', -1, 32)
+	case []byte:
+		return string(i.([]byte))
+	default:
+		return ""
+	}
 }
