@@ -74,7 +74,9 @@ func group(m map[string]interface{}) map[string]interface{} {
 			"查看流水账：\n" +
 			"输入：查看\n\n" +
 			"查看余额：\n" +
-			"输入：余额"
+			"输入：余额\n\n" +
+			"查看花费：\n" +
+			"输入：花费"
 		return map[string]interface{}{
 			"reply": reply,
 		}
@@ -130,10 +132,13 @@ func addBill(event, consumption, uid string) (result map[string]interface{}) {
 
 // 查看流水账列表
 func getBills() (result map[string]interface{}) {
-	reply := "查询流水账失败"
+	reply := "查询本月流水账失败"
 	result = make(map[string]interface{})
 
-	rows, err := dbutil.Db.Query(model.GetBillsSql)
+	monthFirstDay := time.Now().Format("2006-01") + "-01 00:00:00"
+	fmt.Println("查询大于" + monthFirstDay + "的流水账。")
+
+	rows, err := dbutil.Db.Query(model.GetBillsSql, monthFirstDay)
 	defer rows.Close()
 	if err != nil {
 		glog.Infoln(err)
@@ -148,13 +153,13 @@ func getBills() (result map[string]interface{}) {
 		scanArgs[i] = &values[i]
 	}
 
-	reply = ""
+	reply = "\n本月流水账："
 	for rows.Next() {
 		rows.Scan(scanArgs...)
 		record := make(map[string]string)
 		for i, col := range values {
 			if col != nil {
-				record[columns[i]] = string(col.([]byte))
+				record[columns[i]] = convertString(col)
 			}
 		}
 
@@ -165,7 +170,7 @@ func getBills() (result map[string]interface{}) {
 			"\n记录人：" + record["name"] + "\n"
 	}
 
-	if reply == "" {
+	if reply == "\n本月流水账：" {
 		return map[string]interface{}{
 			"reply": "暂无记录",
 		}
@@ -177,8 +182,12 @@ func getBills() (result map[string]interface{}) {
 
 // 删除某条流水账
 func deleteBill(strIds string) (result map[string]interface{}) {
-	ids := strings.Split(strIds, " ")
+	ids := strings.Split(strIds, "，")
+	if len(ids) < 2 {
+		ids = strings.Split(strIds, ",")
+	}
 	reply := "删除编号为%s的流水账失败"
+	result = make(map[string]interface{})
 
 	for i := 1; i < len(ids); i++ {
 		result = make(map[string]interface{})
@@ -372,10 +381,14 @@ func convertString(i interface{}) string {
 	switch i.(type) {
 	case string:
 		return i.(string)
-	case int:
+	case int64:
+		return strconv.FormatInt(i.(int64), 10)
+	case int32:
 		return strconv.Itoa(i.(int))
 	case float64:
-		return strconv.FormatFloat(i.(float64), 'f', -1, 32)
+		return strconv.FormatFloat(i.(float64), 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(i.(float32)), 'f', -1, 32)
 	case []byte:
 		return string(i.([]byte))
 	default:

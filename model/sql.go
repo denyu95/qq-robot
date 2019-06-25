@@ -17,6 +17,8 @@ const (
 			t_user
 		ON
 			t_user.uid = t_bill.uid
+		WHERE
+			t_bill.sysDate > ?
 	`
 	DeleteBillSql = `
 		DELETE FROM
