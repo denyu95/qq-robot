@@ -18,7 +18,7 @@ const (
 		ON
 			t_user.uid = t_bill.uid
 		WHERE
-			t_bill.sysDate > ?
+			t_bill.sysDate >= ? AND t_bill.sysDate < ?
 	`
 	DeleteBillSql = `
 		DELETE FROM
@@ -31,7 +31,7 @@ const (
 		UPDATE
 			t_bill
 		SET
-			event = ?, consumption = ?, updateDate = ?
+			event = ?, consumption = ?, updateDate = ?%s
 		WHERE 
 			id = ?
 	`
@@ -82,7 +82,7 @@ const (
 		ON
 			t_user.uid = t_bill.uid
 		WHERE
-			t_bill.sysDate > ?
+			t_bill.sysDate >= ? AND t_bill.sysDate < ? 
 		GROUP BY
 			t_user.uid
 	`

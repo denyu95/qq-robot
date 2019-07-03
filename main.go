@@ -22,14 +22,14 @@ func main() {
 func group(m map[string]interface{}) map[string]interface{} {
 	helpExp := regexp.MustCompile(`^帮助$`)
 
-	getBillsExp := regexp.MustCompile(`^查看$`)
+	getBillsExp := regexp.MustCompile(`^查询(?:(?:，|,)(\d{4}-\d{2}))?(?:(?:，|,)(\d{4}-\d{2}))?$`)
 	deleteBillExp := regexp.MustCompile(`^删除((?:(?:,|，)(?:\d+))+)$`)
 	addBillExp := regexp.MustCompile(`^(?:！|!)([^\n]+)(?:,|，)(\d+\.?\d{0,2})`)
-	updateBillExp := regexp.MustCompile(`^编辑(?:,|，)(\d+)(?:,|，)([^\n]+)(?:,|，)(\d+\.?\d{0,2})`)
+	updateBillExp := regexp.MustCompile(`^编辑(?:,|，)(\d+)(?:,|，)([^\n]+)(?:,|，)(\d+\.?\d{0,2})(?:(?:,|，)(\d{4}-\d{2}-\d{2}))?$`)
 
 	depositExp := regexp.MustCompile(`^充值(?:,|，)(-?\d+\.?\d{0,2})`)
 	balanceExp := regexp.MustCompile(`^余额$`)
-	spendExp := regexp.MustCompile(`^花费$`)
+	spendExp := regexp.MustCompile(`^消费(?:(?:，|,)(\d{4}-\d{2}))?(?:(?:，|,)(\d{4}-\d{2}))?$`)
 
 	addUserExp := regexp.MustCompile(`^用户(?:,|，)([^\n]+)(?:,|，)([^\n]+)`)
 
@@ -44,7 +44,10 @@ func group(m map[string]interface{}) map[string]interface{} {
 		return addBill(event, consumption, uid)
 
 	} else if getBillsExp.Match(byteMsg) {
-		return getBills()
+		result := getBillsExp.FindAllStringSubmatch(msg, -1)
+		startDate := result[0][1]
+		endDate := result[0][2]
+		return getBills(startDate, endDate)
 
 	} else if deleteBillExp.Match(byteMsg) {
 		result := deleteBillExp.FindAllStringSubmatch(msg, -1)
@@ -56,7 +59,8 @@ func group(m map[string]interface{}) map[string]interface{} {
 		id := result[0][1]
 		event := result[0][2]
 		consumption := result[0][3]
-		return updateBill(id, event, consumption)
+		date := result[0][4]
+		return updateBill(id, event, consumption, date)
 
 	} else if helpExp.Match(byteMsg) {
 		reply := "\n记录流水账：\n" +
@@ -64,25 +68,29 @@ func group(m map[string]interface{}) map[string]interface{} {
 			"如：!买菜，150\n\n" +
 			"编辑流水账：\n" +
 			"输入：编辑，编号，事件，金额\n" +
-			"如：编辑，1，买拖把，160\n\n" +
+			"如：编辑，1，买拖把，160\n" +
+			"如：编辑，1，买拖把，160，2018-01-01\n\n" +
 			"删除流水账：\n" +
 			"输入：删除，编号，编号，编号...\n" +
 			"如：删除，1，2，3，4\n\n" +
 			"充值：\n" +
 			"输入：充值，金额\n" +
 			"如：充值，500\n\n" +
-			"查看流水账：\n" +
-			"输入：查看\n\n" +
-			"查看余额：\n" +
+			"查询流水账：\n" +
+			"输入：查询\n\n" +
+			"查询余额：\n" +
 			"输入：余额\n\n" +
-			"查看花费：\n" +
+			"查询花费：\n" +
 			"输入：花费"
 		return map[string]interface{}{
 			"reply": reply,
 		}
 
 	} else if spendExp.Match(byteMsg) {
-		return spend()
+		result := spendExp.FindAllStringSubmatch(msg, -1)
+		startDate := result[0][1]
+		endDate := result[0][2]
+		return spend(startDate, endDate)
 
 	} else if addUserExp.Match(byteMsg) {
 		result := addUserExp.FindAllStringSubmatch(msg, -1)
@@ -130,15 +138,49 @@ func addBill(event, consumption, uid string) (result map[string]interface{}) {
 	return
 }
 
-// 查看流水账列表
-func getBills() (result map[string]interface{}) {
+// 查询流水账列表
+func getBills(startDate, endDate string) (result map[string]interface{}) {
 	reply := "查询本月流水账失败"
 	result = make(map[string]interface{})
+	timeNow := time.Now()
 
-	monthFirstDay := time.Now().Format("2006-01") + "-01 00:00:00"
-	fmt.Println("查询大于" + monthFirstDay + "的流水账。")
+	monthFirstDay := ""
+	nextMonthFirstDay := ""
+	if startDate != "" && endDate != "" {
+		loc, _ := time.LoadLocation("Local")
+		sTime, err := time.ParseInLocation("2006-01", startDate, loc)
+		if err != nil {
+			result["reply"] = "开始日期填写错误！"
+			return
+		}
+		eTime, err := time.ParseInLocation("2006-01", endDate, loc)
+		if err != nil {
+			result["reply"] = "结束日期填写错误！"
+			return
+		}
+		if sTime.After(eTime) {
+			result["reply"] = "开始日期大于结束日期！"
+			return
+		}
 
-	rows, err := dbutil.Db.Query(model.GetBillsSql, monthFirstDay)
+		monthFirstDay = startDate + "-01 00:00:00"
+		nextMonthFirstDay = endDate + "-01 00:00:00"
+	} else if startDate != "" {
+		loc, _ := time.LoadLocation("Local")
+		sTime, err := time.ParseInLocation("2006-01", startDate, loc)
+		if err != nil {
+			result["reply"] = "开始日期填写错误！"
+			return
+		}
+		monthFirstDay = startDate + "-01 00:00:00"
+		nextMonthFirstDay = sTime.AddDate(0, 1, 0).Format("2006-01") + "-01 00:00:00"
+	} else {
+		monthFirstDay = timeNow.Format("2006-01") + "-01 00:00:00"
+		nextMonthFirstDay = timeNow.AddDate(0, 1, 0).Format("2006-01") + "-01 00:00:00"
+	}
+	fmt.Println("查询 大于等于 " + monthFirstDay + " ，小于 " + nextMonthFirstDay + " 的流水账。")
+
+	rows, err := dbutil.Db.Query(model.GetBillsSql, monthFirstDay, nextMonthFirstDay)
 	defer rows.Close()
 	if err != nil {
 		glog.Infoln(err)
@@ -153,7 +195,7 @@ func getBills() (result map[string]interface{}) {
 		scanArgs[i] = &values[i]
 	}
 
-	reply = "\n本月流水账："
+	reply = "\n流水账记录："
 	for rows.Next() {
 		rows.Scan(scanArgs...)
 		record := make(map[string]string)
@@ -170,7 +212,7 @@ func getBills() (result map[string]interface{}) {
 			"\n记录人：" + record["name"] + "\n"
 	}
 
-	if reply == "\n本月流水账：" {
+	if reply == "\n流水账记录：" {
 		return map[string]interface{}{
 			"reply": "暂无记录",
 		}
@@ -214,18 +256,36 @@ func deleteBill(strIds string) (result map[string]interface{}) {
 }
 
 // 编辑某条流水账
-func updateBill(id, event, consumption string) (result map[string]interface{}) {
+func updateBill(id, event, consumption, date string) (result map[string]interface{}) {
 	reply := "编辑编号为%s的流水账失败"
 	result = make(map[string]interface{})
 
-	stmt, err := dbutil.Db.Prepare(model.UpdateBillSql)
+	var parameters []interface{}
+	parameters = append(parameters, event, consumption, time.Now())
+	strCondition := ""
+
+	if date != "" {
+		strCondition = ", sysDate = ?"
+		loc, _ := time.LoadLocation("Local")
+		_, err := time.ParseInLocation("2006-01-02 15:04:05", date + " 00:00:00", loc)
+		if err != nil {
+			result["reply"] = "日期填写错误！"
+			return
+		}
+		parameters = append(parameters, date + " 00:00:00")
+	}
+	parameters = append(parameters, id)
+
+	sql := fmt.Sprintf(model.UpdateBillSql, strCondition)
+
+	stmt, err := dbutil.Db.Prepare(sql)
 	if err != nil {
 		glog.Infoln(err)
 		reply = fmt.Sprintf(reply, id)
 		result["reply"] = reply
 		return
 	}
-	_, err = stmt.Exec(event, consumption, time.Now(), id)
+	_, err = stmt.Exec(parameters...)
 	if err != nil {
 		glog.Infoln(err)
 		reply = fmt.Sprintf(reply, id)
@@ -322,15 +382,50 @@ func balance() (result map[string]interface{}) {
 	return
 }
 
-// 花费
-func spend() (result map[string]interface{}) {
+// 消费
+func spend(startDate, endDate string) (result map[string]interface{}) {
+	timeNow := time.Now()
 	result = make(map[string]interface{})
-	reply := "查询花费失败"
+	reply := "查询消费失败"
 
-	monthFirstDay := time.Now().Format("2006-01") + "-01 00:00:00"
-	fmt.Println("统计" + monthFirstDay + "花费。")
+	monthFirstDay := ""
+	nextMonthFirstDay := ""
+	if startDate != "" && endDate != "" {
+		loc, _ := time.LoadLocation("Local")
+		sTime, err := time.ParseInLocation("2006-01", startDate, loc)
+		if err != nil {
+			result["reply"] = "开始日期填写错误！"
+			return
+		}
+		eTime, err := time.ParseInLocation("2006-01", endDate, loc)
+		if err != nil {
+			result["reply"] = "结束日期填写错误！"
+			return
+		}
+		if sTime.After(eTime) {
+			result["reply"] = "开始日期大于结束日期！"
+			return
+		}
 
-	rows, err := dbutil.Db.Query(model.CountSpendSql, monthFirstDay)
+		monthFirstDay = startDate + "-01 00:00:00"
+		nextMonthFirstDay = endDate + "-01 00:00:00"
+	} else if startDate != "" {
+		loc, _ := time.LoadLocation("Local")
+		sTime, err := time.ParseInLocation("2006-01", startDate, loc)
+		if err != nil {
+			result["reply"] = "开始日期填写错误！"
+			return
+		}
+		monthFirstDay = startDate + "-01 00:00:00"
+		nextMonthFirstDay = sTime.AddDate(0, 1, 0).Format("2006-01") + "-01 00:00:00"
+	} else {
+		monthFirstDay = timeNow.Format("2006-01") + "-01 00:00:00"
+		nextMonthFirstDay = timeNow.AddDate(0, 1, 0).Format("2006-01") + "-01 00:00:00"
+	}
+
+	fmt.Println("统计" + monthFirstDay + "-" + nextMonthFirstDay + "区间的消费。")
+
+	rows, err := dbutil.Db.Query(model.CountSpendSql, monthFirstDay, nextMonthFirstDay)
 	defer rows.Close()
 	if err != nil {
 		glog.Infoln(err)
@@ -361,7 +456,7 @@ func spend() (result map[string]interface{}) {
 		floatConsumption, _ := strconv.ParseFloat(consumption, 64)
 		total += floatConsumption
 
-		reply += "\n坏人：" + record["name"] +
+		reply += "\n坏蛋 " + record["name"] +
 			"，竟然消费了：" + consumption + "元！\n"
 	}
 
@@ -370,7 +465,7 @@ func spend() (result map[string]interface{}) {
 			"reply": "暂无消费",
 		}
 	} else {
-		reply += "\n总计：" + strconv.FormatFloat(total, 'f', -1, 32)
+		reply += "\n总计：" + fmt.Sprintf("%.2f" ,total)
 		return map[string]interface{}{
 			"reply": reply,
 		}
@@ -386,9 +481,10 @@ func convertString(i interface{}) string {
 	case int32:
 		return strconv.Itoa(i.(int))
 	case float64:
-		return strconv.FormatFloat(i.(float64), 'f', -1, 64)
+
+		return fmt.Sprintf("%.2f", i.(float64))
 	case float32:
-		return strconv.FormatFloat(float64(i.(float32)), 'f', -1, 32)
+		return fmt.Sprintf("%.2f", i.(float32))
 	case []byte:
 		return string(i.([]byte))
 	default:
