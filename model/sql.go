@@ -19,6 +19,8 @@ const (
 			t_user.uid = t_bill.uid
 		WHERE
 			t_bill.sysDate >= ? AND t_bill.sysDate < ?
+		ORDER BY
+			t_bill.sysDate DESC
 	`
 	DeleteBillSql = `
 		DELETE FROM
