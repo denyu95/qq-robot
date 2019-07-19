@@ -16,7 +16,24 @@ import (
 func main() {
 	s := server.StartListenServer(8080, "/")
 	s.ListenGroupMessage(server.GroupMessageListener(group))
+	s.ListenPrivateMessage(server.PrivateMessageListener(private))
 	s.Listen()
+}
+
+func private(msg1 string, msg2 float64, msg3 float64, msg4 string, msg5 float64) map[string]interface{} {
+	//glog.Infoln(msg1)
+	//glog.Infoln(msg2)
+	//glog.Infoln(msg3)
+	//glog.Infoln(msg4)
+	//glog.Infoln(msg5)
+
+	//return map[string]interface{}{
+	//	"reply": "[CQ:file,file=stop]",
+	//}
+
+	return map[string]interface{}{
+		"reply": msg1,
+	}
 }
 
 func group(m map[string]interface{}) map[string]interface{} {
