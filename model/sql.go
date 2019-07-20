@@ -88,4 +88,14 @@ const (
 		GROUP BY
 			t_user.uid
 	`
+
+	GetBankSql = `
+		SELECT
+			SUM(money) as money,
+			date_format(sysDate, '%Y-%m') as sDate
+		FROM
+			t_bank
+		GROUP BY
+			sDate
+	`
 )
