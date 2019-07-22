@@ -24,136 +24,8 @@ func main() {
 }
 
 func private(msg1 string, msg2 float64, msg3 float64, msg4 string, msg5 float64) map[string]interface{} {
-
-	rows, err := dbutil.Db.Query(model.GetBankSql)
-	defer rows.Close()
-	if err != nil {
-		glog.Infoln(err)
-		return map[string]interface{}{
-			"stop": true,
-		}
-	}
-	co, _ := rows.Columns()
-	sArgs := make([]interface{}, len(co))
-	val := make([]interface{}, len(co))
-	recs := make([]map[string]string, 0)
-	a := make(map[string]string)
-	for i := range val {
-		sArgs[i] = &val[i]
-	}
-	for rows.Next() {
-		rows.Scan(sArgs...)
-		record := make(map[string]string)
-		for i, col := range val {
-			if col != nil {
-				record[co[i]] = convertString(col)
-			}
-		}
-		recs = append(recs, record)
-	}
-
-	for _, v := range recs {
-		a[v["sDate"]] = v["money"]
-	}
-
-	rows, err = dbutil.Db.Query(model.GetBillsSql, "2000-01-01 00:00:00", "2200-01-01 00:00:00")
-	defer rows.Close()
-	if err != nil {
-		glog.Infoln(err)
-		return map[string]interface{}{
-			"stop": true,
-		}
-	}
-
-	columns, _ := rows.Columns()
-
-	scanArgs := make([]interface{}, len(columns))
-	values := make([]interface{}, len(columns))
-	records := make([]map[string]string, 0)
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
-	for rows.Next() {
-		rows.Scan(scanArgs...)
-		record := make(map[string]string)
-		for i, col := range values {
-			if col != nil {
-				record[columns[i]] = convertString(col)
-			}
-		}
-		records = append(records, record)
-	}
-
-	results := make(map[string][]map[string]string, 10)
-	for _, record := range records {
-		sysDate := record["sysDate"][0:7]
-		content := results[sysDate]
-		content = append(content, record)
-		results[sysDate] = content
-	}
-
-	f := excelize.NewFile()
-
-	var newMp = make([]string, 0)
-	for k := range results {
-		newMp = append(newMp, k)
-	}
-	sort.Strings(newMp)
-	totalRemain := 0.0
-	for _, v := range newMp {
-		totalSpend := 0.0
-		for i, v1 := range results[v] {
-			if i == 0 {
-				f.NewSheet(v)
-				f.SetColWidth(v, "A", "D", 15)
-				style, err := f.NewStyle(`{"fill":{"type":"pattern","color":["#E0EBF5"],"pattern":10}}`)
-				if err != nil {
-					fmt.Println(err)
-				}
-				err = f.SetCellStyle(v, "A1", "D1", style)
-				f.SetRowHeight(v, 1, 20)
-				f.SetCellValue(v, "A1", "姓名")
-				f.SetCellValue(v, "B1", "事件")
-				f.SetCellValue(v, "C1", "金额")
-				f.SetCellValue(v, "D1", "时间")
-
-				err = f.SetCellStyle(v, "F1", "I1", style)
-				f.SetCellValue(v, "F1", "充值")
-				f.SetCellValue(v, "G1", "当月消费")
-				f.SetCellValue(v, "H1", "当月剩余")
-				f.SetCellValue(v, "I1", "总剩余")
-			}
-			f.SetRowHeight(v, i + 2, 25)
-			f.SetCellValue(v, "A" + strconv.Itoa(i + 2), v1["name"])
-			f.SetCellValue(v, "B" + strconv.Itoa(i + 2), v1["event"])
-			f.SetCellValue(v, "C" + strconv.Itoa(i + 2), v1["consumption"])
-			f.SetCellValue(v, "D" + strconv.Itoa(i + 2), v1["sysDate"])
-
-			consumption, _ := strconv.ParseFloat(v1["consumption"], 32)
-			totalSpend += consumption
-		}
-		bank, _ := strconv.ParseFloat(a[v], 32)
-		totalRemain += bank - totalSpend
-		f.SetCellValue(v, "F2", fmt.Sprintf("%.2f", bank))
-		f.SetCellValue(v, "G2", fmt.Sprintf("%.2f", totalSpend))
-		f.SetCellValue(v, "H2", fmt.Sprintf("%.2f", bank - totalSpend))
-		f.SetCellValue(v, "I2", fmt.Sprintf("%.2f", totalRemain))
-	}
-
-	f.DeleteSheet("Sheet1")
-	f.SetActiveSheet(len(newMp))
-
-	//err = f.SaveAs("./record.xlsx")
-
-	fileName := "record-" + utils.Uuid() + ".xlsx"
-
-	err = f.SaveAs("/data/file/" + fileName)
-	if err != nil {
-		fmt.Println(err)
-	}
-
 	return map[string]interface{}{
-		"reply": "http://www.cylovefcy.com:9999/" + fileName,
+		"reply": "http://www.cylovefcy.com:9999/" + export(),
 	}
 }
 
@@ -170,6 +42,8 @@ func group(m map[string]interface{}) map[string]interface{} {
 	spendExp := regexp.MustCompile(`^消费(?:(?:，|,)(\d{4}-\d{2}))?(?:(?:，|,)(\d{4}-\d{2}))?$`)
 
 	addUserExp := regexp.MustCompile(`^用户(?:,|，)([^\n]+)(?:,|，)([^\n]+)`)
+
+	exportExp := regexp.MustCompile(`^导出$`)
 
 	msg := m["message"].(string)
 	byteMsg := []byte(msg)
@@ -245,7 +119,12 @@ func group(m map[string]interface{}) map[string]interface{} {
 	} else if balanceExp.Match(byteMsg) {
 		return balance()
 
-	} else {
+	} else if exportExp.Match(byteMsg) {
+		return map[string]interface{}{
+			"reply": "http://www.cylovefcy.com:9999/" + export(),
+		}
+
+	}else {
 		return map[string]interface{}{
 			"stop": true,
 		}
@@ -628,4 +507,132 @@ func convertString(i interface{}) string {
 	default:
 		return ""
 	}
+}
+
+func export() string {
+	rows, err := dbutil.Db.Query(model.GetBankSql)
+	defer rows.Close()
+	if err != nil {
+		return ""
+	}
+	co, _ := rows.Columns()
+	sArgs := make([]interface{}, len(co))
+	val := make([]interface{}, len(co))
+	recs := make([]map[string]string, 0)
+	a := make(map[string]string)
+	for i := range val {
+		sArgs[i] = &val[i]
+	}
+	for rows.Next() {
+		rows.Scan(sArgs...)
+		record := make(map[string]string)
+		for i, col := range val {
+			if col != nil {
+				record[co[i]] = convertString(col)
+			}
+		}
+		recs = append(recs, record)
+	}
+
+	for _, v := range recs {
+		a[v["sDate"]] = v["money"]
+	}
+
+	rows, err = dbutil.Db.Query(model.GetBillsSql, "2000-01-01 00:00:00", "2200-01-01 00:00:00")
+	defer rows.Close()
+	if err != nil {
+		glog.Infoln(err)
+		return ""
+	}
+
+	columns, _ := rows.Columns()
+
+	scanArgs := make([]interface{}, len(columns))
+	values := make([]interface{}, len(columns))
+	records := make([]map[string]string, 0)
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+	for rows.Next() {
+		rows.Scan(scanArgs...)
+		record := make(map[string]string)
+		for i, col := range values {
+			if col != nil {
+				record[columns[i]] = convertString(col)
+			}
+		}
+		records = append(records, record)
+	}
+
+	results := make(map[string][]map[string]string, 10)
+	for _, record := range records {
+		sysDate := record["sysDate"][0:7]
+		content := results[sysDate]
+		content = append(content, record)
+		results[sysDate] = content
+	}
+
+	f := excelize.NewFile()
+
+	var newMp = make([]string, 0)
+	for k := range results {
+		newMp = append(newMp, k)
+	}
+	sort.Strings(newMp)
+	totalRemain := 0.0
+	for _, v := range newMp {
+		las := strings.Split(v, "-")
+		v3 := las[0] + "年"+ las[1] + "月"
+		totalSpend := 0.0
+		for i, v1 := range results[v] {
+			if i == 0 {
+				f.NewSheet(v3)
+				f.SetColWidth(v3, "A", "D", 15)
+				style, err := f.NewStyle(`{"fill":{"type":"pattern","color":["#E0EBF5"],"pattern":1},"alignment":{"horizontal":"center"}}`)
+				if err != nil {
+					fmt.Println(err)
+				}
+				err = f.SetCellStyle(v3, "A1", "D1", style)
+				f.SetRowHeight(v3, 1, 20)
+				f.SetCellValue(v3, "A1", "姓名")
+				f.SetCellValue(v3, "B1", "事件")
+				f.SetCellValue(v3, "C1", "金额")
+				f.SetCellValue(v3, "D1", "时间")
+
+				err = f.SetCellStyle(v3, "F1", "I1", style)
+				f.SetCellValue(v3, "F1", "充值")
+				f.SetCellValue(v3, "G1", "当月消费")
+				f.SetCellValue(v3, "H1", "当月剩余")
+				f.SetCellValue(v3, "I1", "总剩余")
+			}
+			f.SetRowHeight(v3, i + 2, 25)
+			f.SetCellValue(v3, "A" + strconv.Itoa(i + 2), v1["name"])
+			f.SetCellValue(v3, "B" + strconv.Itoa(i + 2), v1["event"])
+			f.SetCellValue(v3, "C" + strconv.Itoa(i + 2), v1["consumption"])
+			f.SetCellValue(v3, "D" + strconv.Itoa(i + 2), v1["sysDate"])
+
+			consumption, _ := strconv.ParseFloat(v1["consumption"], 32)
+			totalSpend += consumption
+		}
+		bank, _ := strconv.ParseFloat(a[v], 32)
+		totalRemain += bank - totalSpend
+		f.SetCellValue(v3, "F2", fmt.Sprintf("%.2f", bank))
+		f.SetCellValue(v3, "G2", fmt.Sprintf("%.2f", totalSpend))
+		f.SetCellValue(v3, "H2", fmt.Sprintf("%.2f", bank - totalSpend))
+		f.SetCellValue(v3, "I2", fmt.Sprintf("%.2f", totalRemain))
+	}
+
+	f.DeleteSheet("Sheet1")
+	f.SetActiveSheet(len(newMp) + 1)
+
+	//err = f.SaveAs("./record.xlsx")
+
+	fileName := "record-" + utils.Uuid() + ".xlsx"
+
+	err = f.SaveAs("/data/file/" + fileName)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return  fileName
 }
