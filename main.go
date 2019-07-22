@@ -12,8 +12,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/juzi5201314/cqhttp-go-sdk/server"
 	"github.com/360EntSecGroup-Skylar/excelize"
-	"sort"
 	"gitlab.oifitech.com/SOP/letsgo/utils"
+	"sort"
 )
 
 func main() {
@@ -520,6 +520,8 @@ func export() string {
 	val := make([]interface{}, len(co))
 	recs := make([]map[string]string, 0)
 	a := make(map[string]string)
+	allBank := 0.0
+	allSpend := 0.0
 	for i := range val {
 		sArgs[i] = &val[i]
 	}
@@ -536,6 +538,8 @@ func export() string {
 
 	for _, v := range recs {
 		a[v["sDate"]] = v["money"]
+		floatMoney, _ := strconv.ParseFloat(v["money"], 32)
+		allBank += floatMoney
 	}
 
 	rows, err = dbutil.Db.Query(model.GetBillsSql, "2000-01-01 00:00:00", "2200-01-01 00:00:00")
@@ -570,6 +574,9 @@ func export() string {
 		content := results[sysDate]
 		content = append(content, record)
 		results[sysDate] = content
+
+		floatConsumption, _ := strconv.ParseFloat(record["consumption"], 32)
+		allSpend += floatConsumption
 	}
 
 	f := excelize.NewFile()
@@ -578,12 +585,14 @@ func export() string {
 	for k := range results {
 		newMp = append(newMp, k)
 	}
-	sort.Strings(newMp)
-	totalRemain := 0.0
+	//sort.Strings(newMp)
+	sort.Sort(sort.Reverse(sort.StringSlice(newMp)))
+	xyz := 0.0
 	for _, v := range newMp {
 		las := strings.Split(v, "-")
 		v3 := las[0] + "年"+ las[1] + "月"
-		totalSpend := 0.0
+		monthTotalSpend := 0.0
+		totalRemain := allBank - allSpend - xyz
 		for i, v1 := range results[v] {
 			if i == 0 {
 				f.NewSheet(v3)
@@ -612,18 +621,19 @@ func export() string {
 			f.SetCellValue(v3, "D" + strconv.Itoa(i + 2), v1["sysDate"])
 
 			consumption, _ := strconv.ParseFloat(v1["consumption"], 32)
-			totalSpend += consumption
+			monthTotalSpend += consumption
 		}
 		bank, _ := strconv.ParseFloat(a[v], 32)
-		totalRemain += bank - totalSpend
+
 		f.SetCellValue(v3, "F2", fmt.Sprintf("%.2f", bank))
-		f.SetCellValue(v3, "G2", fmt.Sprintf("%.2f", totalSpend))
-		f.SetCellValue(v3, "H2", fmt.Sprintf("%.2f", bank - totalSpend))
+		f.SetCellValue(v3, "G2", fmt.Sprintf("%.2f", monthTotalSpend))
+		f.SetCellValue(v3, "H2", fmt.Sprintf("%.2f", bank - monthTotalSpend))
 		f.SetCellValue(v3, "I2", fmt.Sprintf("%.2f", totalRemain))
+		xyz += bank - monthTotalSpend
 	}
 
 	f.DeleteSheet("Sheet1")
-	f.SetActiveSheet(len(newMp) + 1)
+	f.SetActiveSheet(2)
 
 	//err = f.SaveAs("./record.xlsx")
 
