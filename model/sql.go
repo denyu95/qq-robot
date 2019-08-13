@@ -76,7 +76,8 @@ const (
 	CountSpendSql = `
 		SELECT
 			SUM(consumption) AS consumption,
-			t_user.name
+			t_user.name,
+			t_user.sex
 		FROM
 			t_bill
 		LEFT JOIN

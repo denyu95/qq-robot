@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"sort"
 
 	"github.com/denyu95/qq-robot/dbutil"
 	"github.com/denyu95/qq-robot/model"
@@ -13,7 +14,6 @@ import (
 	"github.com/juzi5201314/cqhttp-go-sdk/server"
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"gitlab.oifitech.com/SOP/letsgo/utils"
-	"sort"
 )
 
 func main() {
@@ -473,8 +473,13 @@ func spend(startDate, endDate string) (result map[string]interface{}) {
 		floatConsumption, _ := strconv.ParseFloat(consumption, 64)
 		total += floatConsumption
 
-		reply += "\n坏蛋 " + record["name"] +
-			"，竟然消费了：" + consumption + "元！\n"
+		if record["sex"] == "0" {
+			reply += "\n绝代佳人 " + record["name"] +
+				" 消费了：" + consumption + "元！\n"
+		} else {
+			reply += "\n任劳任怨 " + record["name"] +
+				" 消费了：" + consumption + "元！\n"
+		}
 	}
 
 	if reply == "" {
